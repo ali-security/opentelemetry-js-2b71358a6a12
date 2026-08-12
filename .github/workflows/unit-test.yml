@@ -1,10 +1,6 @@
 name: Unit Tests
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-  merge_group:
+  workflow_dispatch:
 
 jobs:
   node-tests:
@@ -20,6 +16,7 @@ jobs:
           - "23"
           - "24"
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       NPM_CONFIG_UNSAFE_PERM: true
     steps:
@@ -42,7 +39,7 @@ jobs:
           matrix.node_version == '18' ||
           matrix.node_version == '20.6.0'
           }}
-      - run: npm install -g npm@latest
+      - run: npm install -g npm@11.3.0
         if: ${{
           matrix.node_version == '20' ||
           matrix.node_version == '22' ||
@@ -57,22 +54,34 @@ jobs:
         run: npm run compile
 
       - run: npm test
-        if: ${{ matrix.node_version != '23' && matrix.node_version != '24' }}
+        if: ${{ matrix.node_version != '22' && matrix.node_version != '23' && matrix.node_version != '24' }}
       # Node.js >= 23 type stripping conflicts with mocha usage of ts-node.
+      # Node.js 22.18+ also enables type stripping by default, so the 22 leg
+      # needs the same flag.
       # See https://github.com/open-telemetry/opentelemetry-js/issues/5415
       - run: npm test
         env:
           NODE_OPTIONS: '--no-experimental-strip-types'
-        if: ${{ matrix.node_version == '23' || matrix.node_version == '24' }}
+        if: ${{ matrix.node_version == '22' || matrix.node_version == '23' || matrix.node_version == '24' }}
 
-      - name: Report Coverage
-        uses: codecov/codecov-action@v5
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      - name: Pack @opentelemetry/core
+        if: ${{ matrix.node_version == '23' }}
+        run: |
+          mkdir -p ./dist-pack
+          npm pack --workspace=packages/opentelemetry-core --pack-destination=./dist-pack
+          mv ./dist-pack/opentelemetry-core-2.0.1.tgz ./dist-pack/core-2.0.1.tgz
+          ls -l ./dist-pack
+
+      - name: Upload core tarball
+        if: ${{ matrix.node_version == '23' }}
+        uses: actions/upload-artifact@v4
         with:
-          verbose: true
+          name: core-tgz
+          path: dist-pack/core-2.0.1.tgz
+          if-no-files-found: error
   node-windows-tests:
     runs-on: windows-latest
+    timeout-minutes: 45
     env:
       NPM_CONFIG_UNSAFE_PERM: true
     steps:
@@ -86,7 +95,7 @@ jobs:
             package-lock.json
           node-version: '22'
 
-      - run: npm install -g npm@latest
+      - run: npm install -g npm@11.3.0
 
       - name: Bootstrap
         run: npm ci
@@ -98,8 +107,11 @@ jobs:
 
       - name: Unit tests
         run: npm run test
+        env:
+          NODE_OPTIONS: '--no-experimental-strip-types'
   browser-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       NPM_CONFIG_UNSAFE_PERM: true
     steps:
@@ -121,14 +133,9 @@ jobs:
 
       - name: Unit tests
         run: npm run test:browser
-      - name: Report Coverage
-        uses: codecov/codecov-action@v5
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        with:
-          verbose: true
   webworker-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       NPM_CONFIG_UNSAFE_PERM: true
     steps:
@@ -149,9 +156,3 @@ jobs:
 
       - name: Unit tests
         run: npm run test:webworker
-      - name: Report Coverage
-        uses: codecov/codecov-action@v5
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        with:
-          verbose: true
